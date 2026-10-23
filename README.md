@@ -22,6 +22,7 @@ A Discord bot for **maimai DX (international)**: generate your Best 50 image, lo
 | `/m query:<keyword>` | Look up chart constants by song title (fuzzy search; pick from buttons if several match) |
 | `/c lv:<const> [to:<const>]` | List charts with a given constant or range, e.g. `/c 13.1`, `/c 13.0 13.4` |
 | `/r [lv:<const>] [to:<const>]` | Pick a random chart by constant, e.g. `/r 13.5`, `/r 13.5 14.0` (no options = any chart) |
+| `/h` | Show all commands and how to use them |
 
 ## Project layout
 

@@ -233,8 +233,27 @@ const commands = [
         .setDescription('解除你的 maimai 好友ID 綁定'),
     new SlashCommandBuilder()
         .setName('myid')
-        .setDescription('查看你目前綁定的 maimai 好友ID')
+        .setDescription('查看你目前綁定的 maimai 好友ID'),
+    new SlashCommandBuilder()
+        .setName('h')
+        .setDescription('顯示所有指令與說明')
 ].map(command => command.toJSON());
+
+const HELP_TEXT = [
+    '**🎵 查歌**',
+    '`/m 歌名` — 查歌曲定數，打部分歌名就可以；多首符合時點按鈕選',
+    '`/c 13.1` — 列出定數 13.1 的譜面；`/c 13.0 13.4` 列出範圍內的譜面',
+    '`/r` — 隨機抽一個譜面；`/r 13.5` 指定定數、`/r 13.5 14.0` 指定範圍',
+    '',
+    '**📈 B50**',
+    '`/bind 好友ID` — 綁定你的 maimai 好友 ID（用 /b50 前要先綁定）',
+    '`/b50` — 產生你的 Best 50 圖片（機器人需是你的遊戲好友）',
+    '`/addfriend 好友代碼` — 讓機器人送好友申請給你',
+    '`/myid` — 查看目前綁定的好友 ID',
+    '`/unbind` — 解除綁定',
+    '',
+    '`/h` — 顯示這個說明',
+].join('\n');
 
 const rest = new REST({ version: '10' }).setToken(token);
 
@@ -242,7 +261,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`✅ Ready! Logged in as ${readyClient.user.tag}`);
     try {
         await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /bind, /unbind, /myid');
+        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /bind, /unbind, /myid, /h');
     } catch (error) {
         console.error('註冊指令失敗:', error);
     }
@@ -279,6 +298,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ content: `🎮 你目前綁定的 Friend ID: \`${boundId}\``, ephemeral: true });
         }
         return interaction.reply({ content: '⚠️ 你尚未綁定 Friend ID，請使用 `/bind` 指令綁定。', ephemeral: true });
+    }
+
+    if (commandName === 'h') {
+        const embed = new EmbedBuilder()
+            .setTitle('📖 指令說明')
+            .setDescription(HELP_TEXT)
+            .setColor(0x2ECC71);
+        return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 
     if (SONG_COMMANDS[commandName]) {
