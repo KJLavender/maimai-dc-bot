@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ComponentType, MessageFlags } = require('discord.js');
+const { Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ComponentType, MessageFlags, AttachmentBuilder } = require('discord.js');
 const { spawn } = require('child_process');
 require('dotenv').config();
 
@@ -72,8 +72,27 @@ function buildSongEmbed(song, title = `🎵 ${song.title}`) {
             { name: '版本', value: song.version || '未知', inline: true },
             { name: '📊 譜面定數', value: lines.join('\n').substring(0, 1024) || '無資料' }
         );
-    if (song.image) embed.setThumbnail(COVER_BASE + encodeURIComponent(song.image));
     return embed;
+}
+
+// Discord 代理抓不到 CloudFront 封面（寬高會是 0），改成自己下載後當附件上傳
+async function coverAttachment(song) {
+    if (!song.image) return null;
+    try {
+        const res = await fetch(COVER_BASE + encodeURIComponent(song.image), { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) return null;
+        return new AttachmentBuilder(Buffer.from(await res.arrayBuffer()), { name: 'cover.png' });
+    } catch {
+        return null;
+    }
+}
+
+async function songMessage(song, title, description) {
+    const embed = buildSongEmbed(song, title);
+    if (description) embed.setDescription(description);
+    const cover = await coverAttachment(song);
+    if (cover) embed.setThumbnail('attachment://cover.png');
+    return { embeds: [embed], files: cover ? [cover] : [] };
 }
 
 function rangeText(low, high) {
@@ -92,7 +111,7 @@ async function handleSearch(interaction) {
 
     const results = data.results;
     if (results.length === 1) {
-        return interaction.editReply({ embeds: [buildSongEmbed(results[0])] });
+        return interaction.editReply(await songMessage(results[0]));
     }
 
     const embed = new EmbedBuilder()
@@ -117,9 +136,11 @@ async function handleSearch(interaction) {
         try {
             if (btn.user.id === interaction.user.id) {
                 collector.stop('selected');
-                await btn.update({ embeds: [buildSongEmbed(song)], components: [] });
+                await btn.deferUpdate();
+                await btn.editReply({ ...(await songMessage(song)), components: [] });
             } else {
-                await btn.reply({ embeds: [buildSongEmbed(song)], flags: MessageFlags.Ephemeral });
+                await btn.deferReply({ flags: MessageFlags.Ephemeral });
+                await btn.editReply(await songMessage(song));
             }
         } catch (e) { console.error('選歌回應失敗:', e.message); }
     });
@@ -169,9 +190,11 @@ async function handleRandom(interaction) {
         return interaction.editReply(`❌ 找不到定數 ${rangeText(low, high)} 的譜面。`);
     }
 
-    const embed = buildSongEmbed(data.song, `🎲 ${data.song.title}`)
-        .setDescription(`🎯 **${sheetLabel(data.pick)}｜定數 ${data.pick.const}**`);
-    return interaction.editReply({ embeds: [embed] });
+    return interaction.editReply(await songMessage(
+        data.song,
+        `🎲 ${data.song.title}`,
+        `🎯 **${sheetLabel(data.pick)}｜定數 ${data.pick.const}**`
+    ));
 }
 
 const SONG_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom };
