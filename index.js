@@ -120,6 +120,8 @@ function chartRating(constant, rank) {
 
 // CiRCLE 起 ALL PERFECT(+) 額外 +1 rating
 const AP_BONUS = 1;
+// Discord 會吃掉行首的一般空白，用全形空白縮排
+const INDENT = '\u3000\u3000';
 
 function calcConstEmbed(constant) {
     const sssPlus = chartRating(constant, RANKS[0]);
@@ -146,7 +148,7 @@ function calcSongMessage(song) {
             value: [
                 `AP **${chartRating(s.const, RANKS[0]) + AP_BONUS}**`,
                 ...RANKS.slice(0, 6).map(r => `${r.name} **${chartRating(s.const, r)}**`),
-            ].join('・'),
+            ].map(line => `${INDENT}${line}`).join('\n'),
         })));
     }
     return withCover(embed, song);
