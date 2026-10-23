@@ -87,12 +87,59 @@ async function coverAttachment(song) {
     }
 }
 
-async function songMessage(song, title, description) {
-    const embed = buildSongEmbed(song, title);
-    if (description) embed.setDescription(description);
+async function withCover(embed, song) {
     const cover = await coverAttachment(song);
     if (cover) embed.setThumbnail('attachment://cover.png');
     return { embeds: [embed], files: cover ? [cover] : [] };
+}
+
+async function songMessage(song, title, description) {
+    const embed = buildSongEmbed(song, title);
+    if (description) embed.setDescription(description);
+    return withCover(embed, song);
+}
+
+// --- Rating 計算：floor(定數 × 達成率(上限 100.5%) × 評級係數) ---
+const RANKS = [
+    { name: 'SSS+', ach: 100.5, k: 22.4 },
+    { name: 'SSS', ach: 100.0, k: 21.6 },
+    { name: 'SS+', ach: 99.5, k: 21.1 },
+    { name: 'SS', ach: 99.0, k: 20.8 },
+    { name: 'S+', ach: 98.0, k: 20.3 },
+    { name: 'S', ach: 97.0, k: 20.0 },
+    { name: 'AAA', ach: 94.0, k: 16.8 },
+];
+
+// 用整數運算避免浮點誤差（例如 299.999... 被捨去）
+function chartRating(constant, rank) {
+    const c10 = Math.round(Number(constant) * 10);
+    const ach = Math.round(rank.ach * 10000);
+    const k10 = Math.round(rank.k * 10);
+    return Math.floor((c10 * ach * k10) / 1e8);
+}
+
+function calcConstEmbed(constant) {
+    const lines = RANKS.map(r => `**${r.name}**（${r.ach.toFixed(1)}%）→ **${chartRating(constant, r)}**`);
+    return new EmbedBuilder()
+        .setTitle(`📐 定數 ${constant.toFixed(1)}`)
+        .setDescription(lines.join('\n'))
+        .setColor(0xE67E22);
+}
+
+function calcSongMessage(song) {
+    const sheets = song.sheets.filter(s => s.const);
+    const embed = new EmbedBuilder()
+        .setTitle(`📐 ${song.title}`.substring(0, 256))
+        .setColor(0xE67E22);
+    if (sheets.length === 0) {
+        embed.setDescription('這首歌目前沒有定數資料。');
+    } else {
+        embed.addFields(sheets.map(s => ({
+            name: `${sheetLabel(s)}｜定數 ${s.const}`,
+            value: RANKS.slice(0, 6).map(r => `${r.name} **${chartRating(s.const, r)}**`).join('・'),
+        })));
+    }
+    return withCover(embed, song);
 }
 
 function rangeText(low, high) {
@@ -100,7 +147,7 @@ function rangeText(low, high) {
 }
 
 // --- 歌曲查詢指令 (不需要全域鎖) ---
-async function handleSearch(interaction) {
+async function handleSearch(interaction, render = songMessage) {
     const query = interaction.options.getString('query');
     const { code, stdout, stderr } = await runPython('search_song.py', [query]);
     const data = parseJson(stdout);
@@ -111,7 +158,7 @@ async function handleSearch(interaction) {
 
     const results = data.results;
     if (results.length === 1) {
-        return interaction.editReply(await songMessage(results[0]));
+        return interaction.editReply(await render(results[0]));
     }
 
     const embed = new EmbedBuilder()
@@ -137,10 +184,10 @@ async function handleSearch(interaction) {
             if (btn.user.id === interaction.user.id) {
                 collector.stop('selected');
                 await btn.deferUpdate();
-                await btn.editReply({ ...(await songMessage(song)), components: [] });
+                await btn.editReply({ ...(await render(song)), components: [] });
             } else {
                 await btn.deferReply({ flags: MessageFlags.Ephemeral });
-                await btn.editReply(await songMessage(song));
+                await btn.editReply(await render(song));
             }
         } catch (e) { console.error('選歌回應失敗:', e.message); }
     });
@@ -197,7 +244,16 @@ async function handleRandom(interaction) {
     ));
 }
 
-const SONG_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom };
+async function handleCalc(interaction) {
+    const query = interaction.options.getString('query').trim();
+    const constant = Number(query);
+    if (/^\d{1,2}(\.\d)?$/.test(query) && constant >= 1 && constant <= 15) {
+        return interaction.editReply({ embeds: [calcConstEmbed(constant)] });
+    }
+    return handleSearch(interaction, calcSongMessage);
+}
+
+const SONG_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom, calc: handleCalc };
 
 const client = new Client({
     intents: [
@@ -258,6 +314,12 @@ const commands = [
         .setName('myid')
         .setDescription('查看你目前綁定的 maimai 好友ID'),
     new SlashCommandBuilder()
+        .setName('calc')
+        .setDescription('算 rating：輸入定數（例：13.3）或歌名')
+        .addStringOption(option =>
+            option.setName('query').setDescription('定數或歌名').setRequired(true)
+        ),
+    new SlashCommandBuilder()
         .setName('h')
         .setDescription('顯示所有指令與說明')
 ].map(command => command.toJSON());
@@ -267,6 +329,7 @@ const HELP_TEXT = [
     '`/m 歌名` — 查歌曲定數，打部分歌名就可以；多首符合時點按鈕選',
     '`/c 13.1` — 列出定數 13.1 的譜面；`/c 13.0 13.4` 列出範圍內的譜面',
     '`/r` — 隨機抽一個譜面；`/r 13.5` 指定定數、`/r 13.5 14.0` 指定範圍',
+    '`/calc 13.3` — 算定數 13.3 各評級的 rating；`/calc 歌名` 算那首歌各難度的 rating',
     '',
     '**📈 B50**',
     '`/bind 好友ID` — 綁定你的 maimai 好友 ID（用 /b50 前要先綁定）',
@@ -284,7 +347,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`✅ Ready! Logged in as ${readyClient.user.tag}`);
     try {
         await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /bind, /unbind, /myid, /h');
+        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /calc, /bind, /unbind, /myid, /h');
     } catch (error) {
         console.error('註冊指令失敗:', error);
     }
