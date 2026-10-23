@@ -10,8 +10,9 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from generate_b50_image import generate_b50_image
+from generate_b50_image import generate_b50_image, last_profile
 from song_data import fetch_songs_data, get_internal_level, search_songs, find_best_match
+from b50_history import save_result
 
 LEVELS_FILE = "/home/ubuntu/levels.json"
 
@@ -231,4 +232,11 @@ def fetch_friend_b50_analysis(driver, friend_idx):
     # 合併結果
     final_df = pd.concat([df_new, df_old])
 
-    return generate_b50_image(final_df, friend_idx, driver)
+    image_path = generate_b50_image(final_df, friend_idx, driver)
+    if image_path:
+        try:
+            prev, total = save_result(friend_idx, df, final_df, image_path, last_profile)
+            print(f"RATING:{total}:{'' if prev is None else prev}", flush=True)
+        except Exception as e:
+            print(f"⚠️ B50 紀錄存檔失敗: {e}", flush=True)
+    return image_path

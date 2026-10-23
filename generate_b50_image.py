@@ -15,6 +15,9 @@ DIFF_COLORS = {
     "Re:Master": (192, 192, 192)
 }
 
+# 最近一次從好友頁讀到的玩家名稱與官方 rating，給 B50 紀錄用
+last_profile = {}
+
 def create_gradient_mask(w, h):
     mask = Image.new('L', (w, h), 0)
     for y in range(h):
@@ -91,6 +94,7 @@ def generate_b50_image(df, friend_idx, driver):
     
     name = soup.find("div", class_="name_block").text.strip()
     rating = soup.find("div", class_="rating_block").text.strip()
+    last_profile.update(name=name, rating=rating)
     icon_tag = soup.find("img", class_="w_112 f_l")
     
     base_x = 250   # 文字與條狀圖的起始 X 軸

@@ -17,7 +17,9 @@
 | `/bind friendid:<ID>` | 將 maimai 好友 ID 綁定到 Discord 帳號 |
 | `/unbind` | 解除綁定 |
 | `/myid` | 查看目前綁定的好友 ID |
-| `/b50` | 產生 Best 50 圖片（需先 `/bind`，且機器人須為遊戲內好友） |
+| `/b50` | 產生 Best 50 圖片（需先 `/bind`，且機器人須為遊戲內好友）。會顯示跟上次相比的 rating 變化；官網連不上時先給上次的結果 |
+| `/up` | 推分建議：依上次 `/b50` 的資料，列出差一點就到下個評級、最能拉高總 rating 的譜面 |
+| `/log` | rating 紀錄（每次 `/b50` 記一筆）與進步曲線圖 |
 | `/addfriend friendcode:<代碼>` | 讓機器人送出好友申請給你 |
 | `/m query:<關鍵字>` | 以歌名查詢定數（模糊搜尋，日文歌名可打羅馬拼音，例：`senbonzakura`；多首符合時以按鈕選擇） |
 | `/c lv:<定數> [to:<定數>]` | 列出某個定數或範圍的譜面，例：`/c 13.1`、`/c 13.0 13.4` |
@@ -37,6 +39,7 @@
 | `search_song.py` / `song_data.py` | `/m`、`/c`、`/r`：從 CloudFront 資料集搜尋歌曲與定數 |
 | `get_levels.py` | 抓取定數寫入 `levels.json`（供 cron 定期執行） |
 | `get_all_pic.py` | 預先下載所有歌曲封面到 `covers/` |
+| `b50_history.py` | 把每次 `/b50` 的結果存到 `b50_data/`；提供 `/up`、`/log` 與官網斷線時的備援 |
 
 ## 安裝
 
@@ -90,6 +93,7 @@ node index.js
 | `bindings.json` | Discord 使用者 ID → maimai 好友 ID |
 | `songs_data_cache.json` | 歌曲資料快取，每 `SONGS_CACHE_TTL` 秒更新 |
 | `covers/` | 歌曲封面快取 |
+| `b50_data/` | 每位玩家的 B50 紀錄：最新成績、rating 歷史與上次的 B50 圖 |
 
 ## 安全性
 

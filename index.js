@@ -265,7 +265,83 @@ async function handleCalc(interaction) {
     return handleSearch(interaction, calcSongMessage);
 }
 
-const SONG_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom, rt: handleCalc };
+// --- B50 紀錄指令 (讀存檔，不連官網) ---
+const NOT_BOUND_MESSAGE = '❌ 你尚未綁定 Friend ID，請先使用 `/bind <你的ID>` 綁定。';
+
+async function runHistory(mode, friendId) {
+    const { code, stdout, stderr } = await runPython('b50_history.py', [mode, friendId]);
+    const data = parseJson(stdout);
+    if (code !== 0 || !data) {
+        console.error(`b50_history.py ${mode} 失敗 (Code ${code}):\n${tailLog(stderr)}`);
+        return { error: 'failed' };
+    }
+    return data;
+}
+
+function historyError(data) {
+    if (data.error === 'no_record') return '⚠️ 還沒有你的 B50 紀錄，請先用 `/b50` 跑一次。';
+    if (data.error === 'invalid_id') return '❌ 綁定的好友 ID 格式不正確，請用 `/bind` 重新綁定。';
+    return '❌ 讀取 B50 紀錄失敗。';
+}
+
+function signed(n) {
+    return n > 0 ? `+${n}` : n < 0 ? `${n}` : '±0';
+}
+
+async function handleUp(interaction) {
+    const friendId = loadBindings()[interaction.user.id];
+    if (!friendId) return interaction.editReply(NOT_BOUND_MESSAGE);
+    const data = await runHistory('up', friendId);
+    if (data.error) return interaction.editReply(historyError(data));
+    if (data.items.length === 0) return interaction.editReply('🎉 目前找不到能再往上推的譜面。');
+
+    const lines = data.items.map((p, i) => [
+        `**${i + 1}. ${p.title}**${p.in_b50 ? '' : '（可擠進 B50）'}`,
+        `${INDENT}[${p.type}] ${p.difficulty} ${p.const}｜${p.achievement}% → ${p.target}%（${p.rank}）差 ${p.gap}%｜**+${p.gain}**`,
+    ].join('\n'));
+    const embed = new EmbedBuilder()
+        .setTitle('🚀 推分建議')
+        .setDescription(lines.join('\n').substring(0, 4000))
+        .setColor(0x1ABC9C)
+        .setFooter({ text: `依 ${data.time} 的 /b50 資料（Rating ${data.rating}）｜+N 為總 rating 增加量` });
+    return interaction.editReply({ embeds: [embed] });
+}
+
+async function handleLog(interaction) {
+    const friendId = loadBindings()[interaction.user.id];
+    if (!friendId) return interaction.editReply(NOT_BOUND_MESSAGE);
+    const data = await runHistory('log', friendId);
+    if (data.error) return interaction.editReply(historyError(data));
+
+    const recent = data.history.slice().reverse();
+    const lines = recent.map((h, i) => {
+        const prev = recent[i + 1];
+        return `\`${h.time}\` **${h.rating}**${prev ? `（${signed(h.rating - prev.rating)}）` : ''}`;
+    });
+    const embed = new EmbedBuilder()
+        .setTitle('📈 Rating 紀錄')
+        .setDescription(lines.join('\n'))
+        .setColor(0xF1C40F)
+        .setFooter({ text: `共 ${data.count} 筆紀錄（每次 /b50 記一筆）` });
+    const files = [];
+    if (data.image) {
+        files.push(new AttachmentBuilder(data.image, { name: 'history.png' }));
+        embed.setImage('attachment://history.png');
+    }
+    return interaction.editReply({ embeds: [embed], files });
+}
+
+// 官網連不上或分析失敗時，先給上次存下的 B50 圖
+async function replyWithLastB50(interaction, friendId, reason) {
+    const data = await runHistory('last', friendId);
+    if (data.error || !data.image) return interaction.editReply(reason);
+    return interaction.editReply({
+        content: `${reason}\n📦 先給你上次（${data.time}，Rating ${data.rating}）的結果：`,
+        files: [data.image],
+    });
+}
+
+const QUICK_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom, rt: handleCalc, up: handleUp, log: handleLog };
 
 const client = new Client({
     intents: [
@@ -332,6 +408,12 @@ const commands = [
             option.setName('query').setDescription('定數或歌名').setRequired(true)
         ),
     new SlashCommandBuilder()
+        .setName('up')
+        .setDescription('推分建議：從你上次 /b50 的資料找最容易漲分的譜面'),
+    new SlashCommandBuilder()
+        .setName('log')
+        .setDescription('查看你的 rating 紀錄與進步曲線'),
+    new SlashCommandBuilder()
         .setName('h')
         .setDescription('顯示所有指令與說明')
 ].map(command => command.toJSON());
@@ -345,7 +427,9 @@ const HELP_TEXT = [
     '',
     '**📈 B50**',
     '`/bind 好友ID` — 綁定你的 maimai 好友 ID（用 /b50 前要先綁定）',
-    '`/b50` — 產生你的 Best 50 圖片（機器人需是你的遊戲好友）',
+    '`/b50` — 產生你的 Best 50 圖片（機器人需是你的遊戲好友）；官網連不上時會先給上次的結果',
+    '`/up` — 推分建議：列出差一點就到下個評級、最容易漲分的譜面',
+    '`/log` — rating 紀錄與進步曲線（每次 /b50 記一筆）',
     '`/addfriend 好友代碼` — 讓機器人送好友申請給你',
     '`/myid` — 查看目前綁定的好友 ID',
     '`/unbind` — 解除綁定',
@@ -359,7 +443,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`✅ Ready! Logged in as ${readyClient.user.tag}`);
     try {
         await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /rt, /bind, /unbind, /myid, /h');
+        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /rt, /up, /log, /bind, /unbind, /myid, /h');
     } catch (error) {
         console.error('註冊指令失敗:', error);
     }
@@ -406,7 +490,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ embeds: [embed] });
     }
 
-    if (SONG_COMMANDS[commandName]) {
+    if (QUICK_COMMANDS[commandName]) {
         try {
             await interaction.deferReply();
         } catch (err) {
@@ -414,7 +498,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return;
         }
         try {
-            await SONG_COMMANDS[commandName](interaction);
+            await QUICK_COMMANDS[commandName](interaction);
         } catch (e) { console.error(`/${commandName} 回應失敗:`, e.message); }
         return;
     }
@@ -442,7 +526,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const TARGET_FRIEND_ID = bindings[interaction.user.id];
         if (!TARGET_FRIEND_ID) {
             isProcessing = false;
-            return interaction.editReply('❌ 你尚未綁定 Friend ID，請先使用 `/bind <你的ID>` 綁定。');
+            return interaction.editReply(NOT_BOUND_MESSAGE);
         }
 
         const pythonProcess = spawn('python3', ['catch-friend-score.py', TARGET_FRIEND_ID], {
@@ -461,7 +545,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             resultData += output;
             const lines = output.split('\n').filter(l => l.trim().length > 0);
             lines.forEach((line) => {
-                if (!line.includes("OUTPUT_FILE:")) {
+                if (!line.includes("OUTPUT_FILE:") && !line.startsWith("RATING:")) {
                     interaction.editReply(`⏳ **正在分析**：${line.trim()}`).catch(() => {});
                 }
             });
@@ -475,10 +559,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     const fileMatch = resultData.match(/OUTPUT_FILE:(.+)/);
                     if (fileMatch && fileMatch[1].trim() !== "ERROR_PATH") {
                         const filePath = fileMatch[1].trim();
+                        const ratingMatch = resultData.match(/RATING:(\d+):(\d*)/);
+                        let ratingText = '';
+                        if (ratingMatch) {
+                            const now = Number(ratingMatch[1]);
+                            const diff = ratingMatch[2] ? `（${signed(now - Number(ratingMatch[2]))}）` : '';
+                            ratingText = `\nRating **${now}**${diff}`;
+                        }
 
                         // 1. 先上傳到 Discord
                         await interaction.editReply({
-                            content: `✅ **${TARGET_FRIEND_ID}** 的 B50 分析完成！`,
+                            content: `✅ **${TARGET_FRIEND_ID}** 的 B50 分析完成！${ratingText}`,
                             files: [filePath]
                         });
 
@@ -492,11 +583,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     }
                 } else {
                     console.error(`catch-friend-score.py 失敗 (Code ${code}):\n${tailLog(errorData)}`);
-                    if (SITE_DOWN_PATTERN.test(errorData + resultData)) {
-                        await interaction.editReply(SITE_DOWN_MESSAGE);
-                    } else {
-                        await interaction.editReply(`❌ 查詢失敗或系統錯誤 (Code ${code})`);
-                    }
+                    const reason = SITE_DOWN_PATTERN.test(errorData + resultData)
+                        ? SITE_DOWN_MESSAGE
+                        : `❌ 查詢失敗或系統錯誤 (Code ${code})`;
+                    await replyWithLastB50(interaction, TARGET_FRIEND_ID, reason);
                 }
             } catch (e) { console.error("B50 回應失敗:", e.message); }
         });
