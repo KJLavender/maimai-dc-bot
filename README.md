@@ -17,7 +17,9 @@ A Discord bot for **maimai DX (international)**: generate your Best 50 image, lo
 | `/bind friendid:<ID>` | Bind your maimai Friend ID to your Discord account |
 | `/unbind` | Remove your binding |
 | `/myid` | Show your bound Friend ID |
-| `/b50` | Generate your Best 50 image (requires `/bind`, and the bot must be your in-game friend) |
+| `/b50` | Generate your Best 50 image (requires `/bind`, and the bot must be your in-game friend). Shows the rating change since last time; if the official site is down, shows your last result instead |
+| `/up` | Score-up suggestions from your last `/b50`: charts closest to the next rank that would raise your total rating the most |
+| `/log` | Your rating history (one entry per `/b50`) with a progress chart |
 | `/addfriend friendcode:<code>` | The bot sends you a friend request |
 | `/m query:<keyword>` | Look up chart constants by song title (fuzzy search, romaji works for Japanese titles, e.g. `senbonzakura`; pick from buttons if several match) |
 | `/c lv:<const> [to:<const>]` | List charts with a given constant or range, e.g. `/c 13.1`, `/c 13.0 13.4` |
@@ -37,6 +39,7 @@ A Discord bot for **maimai DX (international)**: generate your Best 50 image, lo
 | `search_song.py` / `song_data.py` | `/m`, `/c`, `/r`: song search and chart constants from the CloudFront dataset |
 | `get_levels.py` | Scrapes chart constants into `levels.json` (meant for cron) |
 | `get_all_pic.py` | Pre-downloads all song covers into `covers/` |
+| `b50_history.py` | Stores each `/b50` result in `b50_data/`; powers `/up`, `/log` and the offline fallback |
 
 ## Setup
 
@@ -90,6 +93,7 @@ node index.js
 | `bindings.json` | Discord user ID → maimai Friend ID |
 | `songs_data_cache.json` | Song database cache, refreshed every `SONGS_CACHE_TTL` seconds |
 | `covers/` | Song cover cache |
+| `b50_data/` | Per-player B50 records: latest scores, rating history and last B50 image |
 
 ## Security
 
