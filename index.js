@@ -305,7 +305,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setTitle('📖 指令說明')
             .setDescription(HELP_TEXT)
             .setColor(0x2ECC71);
-        return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        return interaction.reply({ embeds: [embed] });
     }
 
     if (SONG_COMMANDS[commandName]) {
