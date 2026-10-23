@@ -4,16 +4,10 @@ __pycache__/
 *.pyc
 .env
 config.json
-*.png
-*.log
 
-# Runtime data (login session, user bindings, caches)
+# Login session of the bot account
 cookies.json
-bindings.json
-songs_data_cache.json
-covers/
 
-# Font files are not redistributable; provide them on the server
-*.ttf
-*.ttc
-*.otf
+# Microsoft fonts are not redistributable; provide them on the server
+impact.ttf
+ariblk.ttf

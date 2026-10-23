@@ -80,11 +80,9 @@ node index.js
 
 ## 資料檔
 
-以下檔案於執行時產生，**不會**提交到 repo：
-
 | 檔案 | 內容 |
 |---|---|
-| `cookies.json` | 機器人帳號的登入工作階段（敏感） |
+| `cookies.json` | 機器人帳號的登入工作階段（敏感，**不會**提交） |
 | `bindings.json` | Discord 使用者 ID → maimai 好友 ID |
 | `songs_data_cache.json` | 歌曲資料快取，每 `SONGS_CACHE_TTL` 秒更新 |
 | `covers/` | 歌曲封面快取 |
@@ -92,4 +90,3 @@ node index.js
 ## 安全性
 
 - 切勿提交 `.env` 或 `cookies.json`，兩者都能取得帳號存取權
-- `bindings.json` 含使用者識別資訊，請勿公開

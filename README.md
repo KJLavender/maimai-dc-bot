@@ -80,11 +80,9 @@ node index.js
 
 ## Data files
 
-These are generated at runtime and are **not** committed:
-
 | File | Content |
 |---|---|
-| `cookies.json` | Login session of the bot account (sensitive) |
+| `cookies.json` | Login session of the bot account (sensitive, **not** committed) |
 | `bindings.json` | Discord user ID → maimai Friend ID |
 | `songs_data_cache.json` | Song database cache, refreshed every `SONGS_CACHE_TTL` seconds |
 | `covers/` | Song cover cache |
@@ -92,4 +90,3 @@ These are generated at runtime and are **not** committed:
 ## Security
 
 - Never commit `.env` or `cookies.json`; both grant access to accounts
-- `bindings.json` contains user identifiers; keep it private
