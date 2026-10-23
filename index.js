@@ -118,8 +118,15 @@ function chartRating(constant, rank) {
     return Math.floor((c10 * ach * k10) / 1e8);
 }
 
+// CiRCLE 起 ALL PERFECT(+) 額外 +1 rating
+const AP_BONUS = 1;
+
 function calcConstEmbed(constant) {
-    const lines = RANKS.map(r => `**${r.name}**（${r.ach.toFixed(1)}%）→ **${chartRating(constant, r)}**`);
+    const sssPlus = chartRating(constant, RANKS[0]);
+    const lines = [
+        `**AP**（ALL PERFECT）→ **${sssPlus + AP_BONUS}**`,
+        ...RANKS.map(r => `**${r.name}**（${r.ach.toFixed(1)}%）→ **${chartRating(constant, r)}**`),
+    ];
     return new EmbedBuilder()
         .setTitle(`📐 定數 ${constant.toFixed(1)}`)
         .setDescription(lines.join('\n'))
@@ -136,14 +143,19 @@ function calcSongMessage(song) {
     } else {
         embed.addFields(sheets.map(s => ({
             name: `${sheetLabel(s)}｜定數 ${s.const}`,
-            value: RANKS.slice(0, 6).map(r => `${r.name} **${chartRating(s.const, r)}**`).join('・'),
+            value: [
+                `AP **${chartRating(s.const, RANKS[0]) + AP_BONUS}**`,
+                ...RANKS.slice(0, 6).map(r => `${r.name} **${chartRating(s.const, r)}**`),
+            ].join('・'),
         })));
     }
     return withCover(embed, song);
 }
 
 function rangeText(low, high) {
-    return low === high ? `${low}` : `${Math.min(low, high)} ~ ${Math.max(low, high)}`;
+    const lo = Math.min(low, high).toFixed(1);
+    const hi = Math.max(low, high).toFixed(1);
+    return lo === hi ? lo : `${lo} ~ ${hi}`;
 }
 
 // --- 歌曲查詢指令 (不需要全域鎖) ---
@@ -253,7 +265,7 @@ async function handleCalc(interaction) {
     return handleSearch(interaction, calcSongMessage);
 }
 
-const SONG_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom, calc: handleCalc };
+const SONG_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom, rt: handleCalc };
 
 const client = new Client({
     intents: [
@@ -314,8 +326,8 @@ const commands = [
         .setName('myid')
         .setDescription('查看你目前綁定的 maimai 好友ID'),
     new SlashCommandBuilder()
-        .setName('calc')
-        .setDescription('算 rating：輸入定數（例：13.3）或歌名')
+        .setName('rt')
+        .setDescription('算 rating：輸入定數（例：13.3，13 = 13.0）或歌名')
         .addStringOption(option =>
             option.setName('query').setDescription('定數或歌名').setRequired(true)
         ),
@@ -329,7 +341,7 @@ const HELP_TEXT = [
     '`/m 歌名` — 查歌曲定數，打部分歌名就可以；多首符合時點按鈕選',
     '`/c 13.1` — 列出定數 13.1 的譜面；`/c 13.0 13.4` 列出範圍內的譜面',
     '`/r` — 隨機抽一個譜面；`/r 13.5` 指定定數、`/r 13.5 14.0` 指定範圍',
-    '`/calc 13.3` — 算定數 13.3 各評級的 rating；`/calc 歌名` 算那首歌各難度的 rating',
+    '`/rt 13.3` — 算定數 13.3 各評級的 rating（含 AP +1；`/rt 13` = 13.0）；`/rt 歌名` 算那首歌各難度的 rating',
     '',
     '**📈 B50**',
     '`/bind 好友ID` — 綁定你的 maimai 好友 ID（用 /b50 前要先綁定）',
@@ -347,7 +359,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`✅ Ready! Logged in as ${readyClient.user.tag}`);
     try {
         await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /calc, /bind, /unbind, /myid, /h');
+        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /rt, /bind, /unbind, /myid, /h');
     } catch (error) {
         console.error('註冊指令失敗:', error);
     }
