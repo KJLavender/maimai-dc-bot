@@ -107,7 +107,6 @@ const RANKS = [
     { name: 'SS', ach: 99.0, k: 20.8 },
     { name: 'S+', ach: 98.0, k: 20.3 },
     { name: 'S', ach: 97.0, k: 20.0 },
-    { name: 'AAA', ach: 94.0, k: 16.8 },
 ];
 
 // 用整數運算避免浮點誤差（例如 299.999... 被捨去）
@@ -120,18 +119,20 @@ function chartRating(constant, rank) {
 
 // CiRCLE 起 ALL PERFECT(+) 額外 +1 rating
 const AP_BONUS = 1;
-// Discord 會吃掉行首的一般空白，用全形空白縮排
-const INDENT = '\u3000\u3000';
+// Discord 會吃掉行首空白（第一行連全形空白都會裁掉），前面加零寬字元擋著
+const INDENT = '\u200b\u3000\u3000';
+
+function ratingList(constant) {
+    return [
+        `AP **${chartRating(constant, RANKS[0]) + AP_BONUS}**`,
+        ...RANKS.map(r => `${r.name} **${chartRating(constant, r)}**`),
+    ].map(line => `${INDENT}${line}`).join('\n');
+}
 
 function calcConstEmbed(constant) {
-    const sssPlus = chartRating(constant, RANKS[0]);
-    const lines = [
-        `**AP**（ALL PERFECT）→ **${sssPlus + AP_BONUS}**`,
-        ...RANKS.map(r => `**${r.name}**（${r.ach.toFixed(1)}%）→ **${chartRating(constant, r)}**`),
-    ];
     return new EmbedBuilder()
         .setTitle(`📐 定數 ${constant.toFixed(1)}`)
-        .setDescription(lines.join('\n'))
+        .setDescription(ratingList(constant))
         .setColor(0xE67E22);
 }
 
@@ -145,10 +146,7 @@ function calcSongMessage(song) {
     } else {
         embed.addFields(sheets.map(s => ({
             name: `${sheetLabel(s)}｜定數 ${s.const}`,
-            value: [
-                `AP **${chartRating(s.const, RANKS[0]) + AP_BONUS}**`,
-                ...RANKS.slice(0, 6).map(r => `${r.name} **${chartRating(s.const, r)}**`),
-            ].map(line => `${INDENT}${line}`).join('\n'),
+            value: ratingList(s.const),
         })));
     }
     return withCover(embed, song);
