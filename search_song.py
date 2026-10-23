@@ -50,7 +50,7 @@ def main():
         return
 
     query = " ".join(args)
-    results = search_songs(query, limit=5)
+    results = search_songs(query, limit=5, romaji=True)
     if not results:
         dump({"error": "not_found", "query": query})
         return
