@@ -246,3 +246,48 @@ def get_song_levels(song):
             info_lines.append(f"[{type_label}] {diff_display} — 等級: {level} | 定數: 未知")
 
     return info_lines
+
+
+def sheet_const(sheet):
+    try:
+        return float(sheet.get("internalLevel"))
+    except (TypeError, ValueError):
+        return None
+
+
+def sheet_brief(sheet):
+    return {
+        "type": sheet.get("type"),
+        "difficulty": sheet.get("difficulty"),
+        "level": sheet.get("level"),
+        "const": sheet.get("internalLevel"),
+        "designer": sheet.get("noteDesigner"),
+    }
+
+
+def song_info(song):
+    """給 Discord 顯示用的歌曲資訊"""
+    return {
+        "title": song.get("title", "未知"),
+        "artist": song.get("artist", "未知"),
+        "bpm": song.get("bpm"),
+        "version": song.get("version"),
+        "image": song.get("imageName"),
+        "sheets": [sheet_brief(s) for s in song.get("sheets", []) if s.get("type") != "utage"],
+    }
+
+
+def find_sheets_by_const(low, high):
+    """找出國際版有開放、定數在 [low, high] 之間的譜面，回傳 (song, sheet) 列表"""
+    if not _songs_data:
+        fetch_songs_data()
+
+    matches = []
+    for song in _songs_data:
+        for sheet in song.get("sheets", []):
+            if sheet.get("type") == "utage" or sheet.get("regions", {}).get("intl") is False:
+                continue
+            const = sheet_const(sheet)
+            if const is not None and low <= const <= high:
+                matches.append((song, sheet))
+    return matches

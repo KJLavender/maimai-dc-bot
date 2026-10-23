@@ -20,6 +20,8 @@ A Discord bot for **maimai DX (international)**: generate your Best 50 image, lo
 | `/b50` | Generate your Best 50 image (requires `/bind`, and the bot must be your in-game friend) |
 | `/addfriend friendcode:<code>` | The bot sends you a friend request |
 | `/m query:<keyword>` | Look up chart constants by song title (fuzzy search; pick from buttons if several match) |
+| `/c lv:<const> [to:<const>]` | List charts with a given constant or range, e.g. `/c 13.1`, `/c 13.0 13.4` |
+| `/r [lv:<const>] [to:<const>]` | Pick a random chart by constant, e.g. `/r 13.5`, `/r 13.5 14.0` (no options = any chart) |
 
 ## Project layout
 
@@ -30,7 +32,7 @@ A Discord bot for **maimai DX (international)**: generate your Best 50 image, lo
 | `fetch_rating_analysis.py` | Computes the Best 50 from scores and chart constants |
 | `generate_b50_image.py` | Draws the B50 image; downloads missing covers into `covers/` |
 | `add_friend.py` | `/addfriend`: sends a friend request |
-| `search_song.py` / `song_data.py` | `/m`: song search and chart constants from the CloudFront dataset |
+| `search_song.py` / `song_data.py` | `/m`, `/c`, `/r`: song search and chart constants from the CloudFront dataset |
 | `get_levels.py` | Scrapes chart constants into `levels.json` (meant for cron) |
 | `get_all_pic.py` | Pre-downloads all song covers into `covers/` |
 

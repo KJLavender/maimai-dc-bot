@@ -20,6 +20,8 @@
 | `/b50` | 產生 Best 50 圖片（需先 `/bind`，且機器人須為遊戲內好友） |
 | `/addfriend friendcode:<代碼>` | 讓機器人送出好友申請給你 |
 | `/m query:<關鍵字>` | 以歌名查詢定數（模糊搜尋；多首符合時以按鈕選擇） |
+| `/c lv:<定數> [to:<定數>]` | 列出某個定數或範圍的譜面，例：`/c 13.1`、`/c 13.0 13.4` |
+| `/r [lv:<定數>] [to:<定數>]` | 依定數隨機抽一個譜面，例：`/r 13.5`、`/r 13.5 14.0`（不填就全部隨機） |
 
 ## 專案結構
 
@@ -30,7 +32,7 @@
 | `fetch_rating_analysis.py` | 依成績與定數計算 Best 50 |
 | `generate_b50_image.py` | 繪製 B50 圖片；缺少的封面會下載到 `covers/` |
 | `add_friend.py` | `/addfriend`：送出好友申請 |
-| `search_song.py` / `song_data.py` | `/m`：從 CloudFront 資料集搜尋歌曲與定數 |
+| `search_song.py` / `song_data.py` | `/m`、`/c`、`/r`：從 CloudFront 資料集搜尋歌曲與定數 |
 | `get_levels.py` | 抓取定數寫入 `levels.json`（供 cron 定期執行） |
 | `get_all_pic.py` | 預先下載所有歌曲封面到 `covers/` |
 

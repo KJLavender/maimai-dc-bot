@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { Client, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ComponentType, MessageFlags } = require('discord.js');
 const { spawn } = require('child_process');
 require('dotenv').config();
 
@@ -19,6 +19,162 @@ function loadBindings() {
 function saveBindings(data) {
     fs.writeFileSync(BINDINGS_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
+
+// --- Python 子程序 ---
+function runPython(script, args) {
+    return new Promise((resolve) => {
+        const proc = spawn('python3', [script, ...args], {
+            env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+        });
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.setEncoding('utf8');
+        proc.stderr.setEncoding('utf8');
+        proc.stdout.on('data', (d) => { stdout += d; });
+        proc.stderr.on('data', (d) => { stderr += d; });
+        proc.on('error', (err) => resolve({ code: -1, stdout, stderr: stderr + err.message }));
+        proc.on('close', (code) => resolve({ code, stdout, stderr }));
+    });
+}
+
+function parseJson(text) {
+    try { return JSON.parse(text.trim()); } catch { return null; }
+}
+
+// Selenium 的 stacktrace 很長，只留最後幾行有用的
+function tailLog(text, lines = 15) {
+    return text.trim().split('\n').filter(l => !/^#\d+ 0x/.test(l)).slice(-lines).join('\n');
+}
+
+const SITE_DOWN_PATTERN = /ERR_CONNECTION_REFUSED|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_RESET|ERR_NAME_NOT_RESOLVED|ERR_TIMED_OUT|ERR_INTERNET_DISCONNECTED/;
+const SITE_DOWN_MESSAGE = '❌ maimai 官網目前無法連線（可能正在維護），請稍後再試。';
+
+// --- 歌曲顯示 ---
+const COVER_BASE = 'https://dp4p6x0xfi5o9.cloudfront.net/maimai/img/cover/';
+const DIFF_LABEL = { basic: 'BASIC', advanced: 'ADVANCED', expert: 'EXPERT', master: 'MASTER', remaster: 'Re:MASTER' };
+
+function sheetLabel(sheet) {
+    const type = sheet.type === 'dx' ? 'DX' : 'STD';
+    return `[${type}] ${DIFF_LABEL[sheet.difficulty] || String(sheet.difficulty).toUpperCase()} ${sheet.level}`;
+}
+
+function buildSongEmbed(song, title = `🎵 ${song.title}`) {
+    const lines = song.sheets.map((s) => {
+        const designer = s.designer && s.designer !== '-' ? ` — ${s.designer}` : '';
+        return `${sheetLabel(s)}｜定數 **${s.const ?? '未知'}**${designer}`;
+    });
+    const embed = new EmbedBuilder()
+        .setTitle(title.substring(0, 256))
+        .setColor(0xFFD700)
+        .addFields(
+            { name: '藝術家', value: song.artist || '未知', inline: true },
+            { name: 'BPM', value: String(song.bpm ?? '未知'), inline: true },
+            { name: '版本', value: song.version || '未知', inline: true },
+            { name: '📊 譜面定數', value: lines.join('\n').substring(0, 1024) || '無資料' }
+        );
+    if (song.image) embed.setThumbnail(COVER_BASE + encodeURIComponent(song.image));
+    return embed;
+}
+
+function rangeText(low, high) {
+    return low === high ? `${low}` : `${Math.min(low, high)} ~ ${Math.max(low, high)}`;
+}
+
+// --- 歌曲查詢指令 (不需要全域鎖) ---
+async function handleSearch(interaction) {
+    const query = interaction.options.getString('query');
+    const { code, stdout, stderr } = await runPython('search_song.py', [query]);
+    const data = parseJson(stdout);
+    if (code !== 0 || !data || data.error) {
+        if (code !== 0) console.error(`search_song.py 失敗 (Code ${code}):\n${tailLog(stderr)}`);
+        return interaction.editReply(`❌ 找不到與「${query}」相關的歌曲。`);
+    }
+
+    const results = data.results;
+    if (results.length === 1) {
+        return interaction.editReply({ embeds: [buildSongEmbed(results[0])] });
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle(`🔍 搜尋「${query}」的結果`.substring(0, 256))
+        .setDescription(results.map((s, i) => `**${i + 1}.** ${s.title} — ${s.artist}`).join('\n'))
+        .setColor(0x3498DB)
+        .setFooter({ text: '請點擊下方按鈕選擇歌曲' });
+
+    const row = new ActionRowBuilder().addComponents(
+        results.map((song, i) => new ButtonBuilder()
+            .setCustomId(`song_${i}`)
+            .setLabel(`${i + 1}. ${song.title}`.substring(0, 80))
+            .setStyle(ButtonStyle.Primary))
+    );
+
+    const response = await interaction.editReply({ embeds: [embed], components: [row] });
+    const collector = response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+
+    collector.on('collect', async (btn) => {
+        const song = results[Number(btn.customId.split('_')[1])];
+        if (!song) return;
+        try {
+            if (btn.user.id === interaction.user.id) {
+                collector.stop('selected');
+                await btn.update({ embeds: [buildSongEmbed(song)], components: [] });
+            } else {
+                await btn.reply({ embeds: [buildSongEmbed(song)], flags: MessageFlags.Ephemeral });
+            }
+        } catch (e) { console.error('選歌回應失敗:', e.message); }
+    });
+
+    collector.on('end', (_, reason) => {
+        if (reason !== 'selected') interaction.editReply({ components: [] }).catch(() => {});
+    });
+}
+
+async function handleConst(interaction) {
+    const low = interaction.options.getNumber('lv');
+    const high = interaction.options.getNumber('to') ?? low;
+    const { code, stdout, stderr } = await runPython('search_song.py', ['--const', String(low), String(high)]);
+    const data = parseJson(stdout);
+    if (code !== 0 || !data || data.error) {
+        if (code !== 0) console.error(`search_song.py --const 失敗 (Code ${code}):\n${tailLog(stderr)}`);
+        return interaction.editReply(`❌ 找不到定數 ${rangeText(low, high)} 的譜面。`);
+    }
+
+    const lines = [];
+    let length = 0;
+    for (const item of data.items) {
+        const line = `\`${item.const}\` ${sheetLabel(item)} - ${item.title}`;
+        if (length + line.length + 1 > 4000) break;
+        lines.push(line);
+        length += line.length + 1;
+    }
+
+    const footer = lines.length < data.total ? `共 ${data.total} 個譜面，只顯示前 ${lines.length} 個` : `共 ${data.total} 個譜面`;
+    const embed = new EmbedBuilder()
+        .setTitle(`📊 定數 ${rangeText(low, high)}`)
+        .setDescription(lines.join('\n'))
+        .setColor(0x9B59B6)
+        .setFooter({ text: footer });
+    return interaction.editReply({ embeds: [embed] });
+}
+
+async function handleRandom(interaction) {
+    const lv = interaction.options.getNumber('lv');
+    const to = interaction.options.getNumber('to');
+    const low = lv ?? 1;
+    const high = to ?? lv ?? 15;
+    const { code, stdout, stderr } = await runPython('search_song.py', ['--random', String(low), String(high)]);
+    const data = parseJson(stdout);
+    if (code !== 0 || !data || data.error) {
+        if (code !== 0) console.error(`search_song.py --random 失敗 (Code ${code}):\n${tailLog(stderr)}`);
+        return interaction.editReply(`❌ 找不到定數 ${rangeText(low, high)} 的譜面。`);
+    }
+
+    const embed = buildSongEmbed(data.song, `🎲 ${data.song.title}`)
+        .setDescription(`🎯 **${sheetLabel(data.pick)}｜定數 ${data.pick.const}**`);
+    return interaction.editReply({ embeds: [embed] });
+}
+
+const SONG_COMMANDS = { m: handleSearch, c: handleConst, r: handleRandom };
 
 const client = new Client({
     intents: [
@@ -49,6 +205,24 @@ const commands = [
             option.setName('query').setDescription('請輸入歌名關鍵字').setRequired(true)
         ),
     new SlashCommandBuilder()
+        .setName('c')
+        .setDescription('依定數列出譜面（例：/c 13.1 或 /c 13.0 13.4）')
+        .addNumberOption(option =>
+            option.setName('lv').setDescription('定數（或範圍下限）').setRequired(true).setMinValue(1).setMaxValue(15)
+        )
+        .addNumberOption(option =>
+            option.setName('to').setDescription('範圍上限（選填）').setMinValue(1).setMaxValue(15)
+        ),
+    new SlashCommandBuilder()
+        .setName('r')
+        .setDescription('依定數隨機抽一首（例：/r 13.5 或 /r 13.5 14.0）')
+        .addNumberOption(option =>
+            option.setName('lv').setDescription('定數（或範圍下限），不填就全部隨機').setMinValue(1).setMaxValue(15)
+        )
+        .addNumberOption(option =>
+            option.setName('to').setDescription('範圍上限（選填）').setMinValue(1).setMaxValue(15)
+        ),
+    new SlashCommandBuilder()
         .setName('bind')
         .setDescription('綁定你的 maimai 好友ID到 Discord 帳號')
         .addStringOption(option =>
@@ -68,7 +242,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log(`✅ Ready! Logged in as ${readyClient.user.tag}`);
     try {
         await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-        console.log('成功註冊指令：/b50, /addfriend, /m, /bind, /unbind, /myid');
+        console.log('成功註冊指令：/b50, /addfriend, /m, /c, /r, /bind, /unbind, /myid');
     } catch (error) {
         console.error('註冊指令失敗:', error);
     }
@@ -107,6 +281,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: '⚠️ 你尚未綁定 Friend ID，請使用 `/bind` 指令綁定。', ephemeral: true });
     }
 
+    if (SONG_COMMANDS[commandName]) {
+        try {
+            await interaction.deferReply();
+        } catch (err) {
+            console.error("❌ DeferReply 失敗，互動已過期 (超過 3 秒):", err.message);
+            return;
+        }
+        try {
+            await SONG_COMMANDS[commandName](interaction);
+        } catch (e) { console.error(`/${commandName} 回應失敗:`, e.message); }
+        return;
+    }
+
     // --- 檢查全域鎖 ---
     if (isProcessing) {
         return interaction.reply({ content: "⚠️ 機器人正在處理另一個請求中，請稍候 30-60 秒再試。", ephemeral: true });
@@ -138,6 +325,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
 
         let resultData = "";
+        let errorData = "";
+
+        pythonProcess.stderr.on('data', (data) => {
+            errorData += data.toString();
+        });
 
         pythonProcess.stdout.on('data', (data) => {
             const output = data.toString();
@@ -174,7 +366,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         await interaction.editReply(`❌ 分析完成，但找不到數據。請確認是否已加好友。`);
                     }
                 } else {
-                    await interaction.editReply(`❌ 查詢失敗或系統錯誤 (Code ${code})`);
+                    console.error(`catch-friend-score.py 失敗 (Code ${code}):\n${tailLog(errorData)}`);
+                    if (SITE_DOWN_PATTERN.test(errorData + resultData)) {
+                        await interaction.editReply(SITE_DOWN_MESSAGE);
+                    } else {
+                        await interaction.editReply(`❌ 查詢失敗或系統錯誤 (Code ${code})`);
+                    }
                 }
             } catch (e) { console.error("B50 回應失敗:", e.message); }
         });
@@ -189,6 +386,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
 
         let addResult = "";
+        let addError = "";
+
+        addProcess.stderr.on('data', (data) => {
+            addError += data.toString();
+        });
 
         addProcess.stdout.on('data', (data) => {
             const output = data.toString();
@@ -210,101 +412,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 } else if (addResult.includes("ERROR_ALREADY_FRIEND_OR_FULL")) {
                     await interaction.editReply(`⚠️ **提示**：無法送出申請。可能已是好友或列表已滿。`);
                 } else {
-                    await interaction.editReply(`❌ **申請發生錯誤** (Code: ${code})。`);
+                    console.error(`add_friend.py 失敗 (Code ${code}):\n${tailLog(addError)}`);
+                    if (SITE_DOWN_PATTERN.test(addError + addResult)) {
+                        await interaction.editReply(SITE_DOWN_MESSAGE);
+                    } else {
+                        await interaction.editReply(`❌ **申請發生錯誤** (Code: ${code})。`);
+                    }
                 }
             } catch (e) { console.error("AddFriend 回應失敗:", e.message); }
-        });
-    }
-
-    // --- 指令 C: m (歌曲定數查詢，含按鈕選歌) ---
-    if (commandName === 'm') {
-        const query = interaction.options.getString('query');
-
-        const searchProcess = spawn('python3', ['search_song.py', query], {
-            env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
-        });
-
-        let searchResult = "";
-
-        searchProcess.stdout.on('data', (data) => {
-            searchResult += data.toString();
-        });
-
-        searchProcess.stderr.on('data', (data) => {
-            console.error("search_song.py stderr:", data.toString());
-        });
-
-        searchProcess.on('close', async (code) => {
-            isProcessing = false;
-            if (!deferred) return;
-            try {
-                if (code !== 0 || !searchResult.trim()) {
-                    return interaction.editReply(`❌ 找不到與「${query}」相關的歌曲。`);
-                }
-
-                const data = JSON.parse(searchResult.trim());
-                if (data.error) {
-                    return interaction.editReply(`❌ 找不到與「${query}」相關的歌曲。`);
-                }
-
-                const results = data.results;
-
-                // 只有一首 → 直接顯示
-                if (results.length === 1) {
-                    const song = results[0];
-                    const embed = new EmbedBuilder()
-                        .setTitle(`🎵 ${song.title}`)
-                        .setColor(0xFFD700)
-                        .addFields(
-                            { name: '藝術家', value: song.artist, inline: true },
-                            { name: '📊 譜面定數', value: song.levels.join('\n') || '無資料', inline: false }
-                        );
-                    return interaction.editReply({ embeds: [embed] });
-                }
-
-                // 多首 → 顯示按鈕讓使用者選擇
-                const descLines = results.map((s, i) => `**${i + 1}.** ${s.title} — ${s.artist}`);
-                const embed = new EmbedBuilder()
-                    .setTitle(`🔍 搜尋「${query}」的結果`)
-                    .setDescription(descLines.join('\n'))
-                    .setColor(0x3498DB)
-                    .setFooter({ text: '請點擊下方按鈕選擇歌曲' });
-
-                const row = new ActionRowBuilder();
-                results.forEach((song, i) => {
-                    row.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`song_${i}`)
-                            .setLabel(`${i + 1}. ${song.title}`.substring(0, 80))
-                            .setStyle(ButtonStyle.Primary)
-                    );
-                });
-
-                const response = await interaction.editReply({ embeds: [embed], components: [row] });
-
-                // 等待按鈕點擊 (60秒)
-                const collector = response.createMessageComponentCollector({ time: 60000 });
-
-                collector.on('collect', async (btnInteraction) => {
-                    const idx = parseInt(btnInteraction.customId.split('_')[1]);
-                    const song = results[idx];
-                    if (!song) return;
-
-                    const songEmbed = new EmbedBuilder()
-                        .setTitle(`🎵 ${song.title}`)
-                        .setColor(0xFFD700)
-                        .addFields(
-                            { name: '藝術家', value: song.artist, inline: true },
-                            { name: '📊 譜面定數', value: song.levels.join('\n') || '無資料', inline: false }
-                        );
-                    await btnInteraction.reply({ embeds: [songEmbed] });
-                });
-
-                collector.on('end', () => {
-                    interaction.editReply({ components: [] }).catch(() => {});
-                });
-
-            } catch (e) { console.error("M 搜尋回應失敗:", e.message); }
         });
     }
 });
