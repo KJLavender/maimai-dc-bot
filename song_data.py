@@ -5,12 +5,14 @@
 import sys
 import json
 import os
+import re
 import time
 import requests
 from difflib import SequenceMatcher
 
 DATA_URL = "https://dp4p6x0xfi5o9.cloudfront.net/maimai/data.json"
 CACHE_FILE = "songs_data_cache.json"
+ROMAJI_CACHE_FILE = "songs_romaji_cache.json"
 CACHE_TTL_SECONDS = int(os.environ.get("SONGS_CACHE_TTL", 6 * 60 * 60))
 
 # 全域歌曲資料
@@ -76,15 +78,77 @@ def fetch_songs_data(force_refresh=False):
     return _songs_data
 
 
-def search_songs(query, limit=25):
+# 統一各種羅馬拼音寫法（黑本式/訓令式、長音），讓 shoukai / shokai / syoukai 都視為相同
+_ROMAJI_RULES = [
+    ("jy", "j"), ("shi", "si"), ("sh", "sy"), ("chi", "ti"), ("ch", "ty"),
+    ("tsu", "tu"), ("fu", "hu"), ("ji", "zi"), ("j", "zy"),
+    ("ou", "o"), ("oo", "o"), ("uu", "u"), ("aa", "a"), ("ii", "i"), ("ee", "e"),
+]
+
+
+def normalize_romaji(text):
+    text = re.sub(r"[^a-z0-9]", "", text.lower())
+    for old, new in _ROMAJI_RULES:
+        text = text.replace(old, new)
+    return text
+
+
+def _romaji_index():
+    """回傳 {歌名: 正規化羅馬拼音}，結果快取在檔案，只替新歌做轉換"""
+    index = {}
+    if os.path.exists(ROMAJI_CACHE_FILE):
+        try:
+            with open(ROMAJI_CACHE_FILE, "r", encoding="utf-8") as f:
+                index = json.load(f)
+        except (OSError, ValueError):
+            index = {}
+
+    missing = [s.get("title", "") for s in _songs_data if s.get("title", "") not in index]
+    if not missing:
+        return index
+
+    try:
+        import pykakasi
+    except ImportError:
+        _log("⚠️ 未安裝 pykakasi，無法用羅馬拼音搜尋")
+        return index
+
+    kks = pykakasi.kakasi()
+    for title in missing:
+        hepburn = "".join(item["hepburn"] for item in kks.convert(title))
+        index[title] = normalize_romaji(hepburn)
+
+    try:
+        with open(ROMAJI_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False)
+    except OSError:
+        pass
+    return index
+
+
+def _romaji_score(query_romaji, title_romaji):
+    if not query_romaji or not title_romaji:
+        return 0
+    if query_romaji == title_romaji:
+        return 95
+    if len(query_romaji) >= 3 and query_romaji in title_romaji:
+        return 75 + (len(query_romaji) / len(title_romaji)) * 20
+    ratio = SequenceMatcher(None, query_romaji, title_romaji).ratio()
+    return ratio * 55 if ratio > 0.6 else 0
+
+
+def search_songs(query, limit=25, romaji=False):
     """
     模糊搜尋歌曲，回傳最相關的結果。
     支援完全匹配、包含匹配、字元匹配與 SequenceMatcher。
+    romaji=True 時也比對歌名的羅馬拼音。
     """
     if not _songs_data:
         fetch_songs_data()
 
     query_lower = query.lower()
+    query_romaji = normalize_romaji(query) if romaji and re.search(r"[a-zA-Z]", query) else ""
+    romaji_index = _romaji_index() if query_romaji else {}
     results = []
 
     for song in _songs_data:
@@ -111,10 +175,16 @@ def search_songs(query, limit=25):
             if ratio > 0.4:
                 score = ratio * 60
 
+        if query_romaji:
+            score = max(score, _romaji_score(query_romaji, romaji_index.get(title, "")))
+
         if score > 0:
             results.append((score, song))
 
     results.sort(key=lambda x: x[0], reverse=True)
+    # 有明確命中時，去掉只是字元湊巧相似的結果
+    if romaji and results and results[0][0] >= 75:
+        results = [r for r in results if r[0] > 70]
     return [song for _, song in results[:limit]]
 
 

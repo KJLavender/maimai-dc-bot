@@ -19,7 +19,7 @@ A Discord bot for **maimai DX (international)**: generate your Best 50 image, lo
 | `/myid` | Show your bound Friend ID |
 | `/b50` | Generate your Best 50 image (requires `/bind`, and the bot must be your in-game friend) |
 | `/addfriend friendcode:<code>` | The bot sends you a friend request |
-| `/m query:<keyword>` | Look up chart constants by song title (fuzzy search; pick from buttons if several match) |
+| `/m query:<keyword>` | Look up chart constants by song title (fuzzy search, romaji works for Japanese titles, e.g. `senbonzakura`; pick from buttons if several match) |
 | `/c lv:<const> [to:<const>]` | List charts with a given constant or range, e.g. `/c 13.1`, `/c 13.0 13.4` |
 | `/r [lv:<const>] [to:<const>]` | Pick a random chart by constant, e.g. `/r 13.5`, `/r 13.5 14.0` (no options = any chart) |
 | `/rt query:<const or title>` | Rating per rank (including the +1 ALL PERFECT bonus): `/rt 13.3` shows AP/SSS+/SSS/... ratings for constant 13.3 (`/rt 13` = 13.0); `/rt <title>` shows them for every chart of that song |
