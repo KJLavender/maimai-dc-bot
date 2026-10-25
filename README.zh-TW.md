@@ -40,6 +40,7 @@
 | `get_levels.py` | 抓取定數寫入 `levels.json`（供 cron 定期執行） |
 | `get_all_pic.py` | 預先下載所有歌曲封面到 `covers/` |
 | `b50_history.py` | 把每次 `/b50` 的結果存到 `b50_data/`；提供 `/up`、`/log` 與官網斷線時的備援 |
+| `otogo_worker.py` | [音GO 網站](https://maimai-japan-map.netlify.app)的好友代碼代抓成績（見下方） |
 
 ## 安裝
 
@@ -76,6 +77,8 @@ cp .env.example .env
 | `GUILD_ID` | 註冊斜線指令的伺服器 ID |
 | `MAI_USER` / `MAI_PASS` | 機器人使用的 maimai DX NET 帳號 |
 | `SONGS_CACHE_TTL` | 選填。歌曲資料快取秒數，預設 `21600`（6 小時） |
+| `OTOGO_BOT_NAME` | 僅 `otogo_worker.py`。機器人帳號在遊戲裡的名字，會顯示給網站使用者 |
+| `FIREBASE_KEY` | 僅 `otogo_worker.py`。選填，Firebase 服務帳戶金鑰路徑，預設 `./firebase-key.json` |
 
 > `.env` 由 `index.js` 載入並傳給 Python 腳本。若直接執行 Python 腳本（例如 cron），需自行 export 這些變數。
 
@@ -83,6 +86,43 @@ cp .env.example .env
 
 ```bash
 node index.js
+```
+
+### 音GO 網站代抓程式（選用）
+
+在[音GO 網站](https://maimai-japan-map.netlify.app)登入的使用者可以輸入好友代碼、接受機器人的好友申請，再按按鈕抓 B50。網站把工作放在 Firestore 的 `jobs/{uid}`；`otogo_worker.py` 監聽排隊中的工作，一次做一個：
+
+- `friend`：跑 `add_friend.py`；成功就記下 `maiBind/{好友代碼} = {uid}`（哪個帳號送的申請）
+- `b50`：`maiBind` 是同一個帳號才跑 `catch-friend-score.py`，把成績轉成網站格式寫進 `users/{uid}/mai/b50`
+
+如果代碼已經是機器人的好友、但不是這個帳號送的申請，工作會被拒絕（本人可以先刪掉機器人好友再送一次），這樣沒有人能只靠別人的代碼偷看成績。
+
+1. Firebase 控制台 → 專案設定 → 服務帳戶 → 產生新的私密金鑰，存成專案資料夾裡的 `firebase-key.json`（或設定 `FIREBASE_KEY`）。已列入 .gitignore，千萬不要提交
+2. 在 `.env` 設定 `OTOGO_BOT_NAME` 為機器人帳號在遊戲裡的名字
+3. `pip install -r requirements.txt`，然後 `python3 otogo_worker.py`
+
+要讓它一直跑，用 systemd 服務（`/etc/systemd/system/otogo-worker.service`）：
+
+```ini
+[Unit]
+Description=OtoGO B50 worker
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/mai-bot
+ExecStart=/home/ubuntu/mai-bot/.venv/bin/python otogo_worker.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now otogo-worker
+journalctl -u otogo-worker -f   # 看紀錄
 ```
 
 ## 資料檔
@@ -98,3 +138,4 @@ node index.js
 ## 安全性
 
 - 切勿提交 `.env` 或 `cookies.json`，兩者都能取得帳號存取權
+- 切勿提交 `firebase-key.json`，它有音GO Firestore 的管理員權限

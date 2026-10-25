@@ -8,6 +8,9 @@ config.json
 # Login session of the bot account
 cookies.json
 
+# Firebase service account key for otogo_worker.py
+firebase-key.json
+
 # Microsoft fonts are not redistributable; provide them on the server
 impact.ttf
 ariblk.ttf

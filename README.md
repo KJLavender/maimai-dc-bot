@@ -40,6 +40,7 @@ A Discord bot for **maimai DX (international)**: generate your Best 50 image, lo
 | `get_levels.py` | Scrapes chart constants into `levels.json` (meant for cron) |
 | `get_all_pic.py` | Pre-downloads all song covers into `covers/` |
 | `b50_history.py` | Stores each `/b50` result in `b50_data/`; powers `/up`, `/log` and the offline fallback |
+| `otogo_worker.py` | Friend-code score fetching for the [OtoGO website](https://maimai-japan-map.netlify.app) (see below) |
 
 ## Setup
 
@@ -76,6 +77,8 @@ cp .env.example .env
 | `GUILD_ID` | Server ID where slash commands are registered |
 | `MAI_USER` / `MAI_PASS` | maimai DX NET account used by the bot |
 | `SONGS_CACHE_TTL` | Optional. Song data cache lifetime in seconds, default `21600` (6 hours) |
+| `OTOGO_BOT_NAME` | `otogo_worker.py` only. In-game name of the bot account, shown to website users |
+| `FIREBASE_KEY` | `otogo_worker.py` only. Optional path to the Firebase service account key, default `./firebase-key.json` |
 
 > `.env` is loaded by `index.js` and passed to the Python scripts. When running Python scripts directly (e.g. from cron), export these variables yourself.
 
@@ -83,6 +86,43 @@ cp .env.example .env
 
 ```bash
 node index.js
+```
+
+### OtoGO website worker (optional)
+
+On the [OtoGO website](https://maimai-japan-map.netlify.app), signed-in users can enter their friend code, accept the bot's friend request and press a button to fetch their B50. The site puts a job in Firestore `jobs/{uid}`; `otogo_worker.py` listens for queued jobs and handles them one at a time:
+
+- `friend`: runs `add_friend.py`; on success records `maiBind/{friendCode} = {uid}` (which account sent the request)
+- `b50`: only if `maiBind` points to the same account, runs `catch-friend-score.py` and writes the scores to `users/{uid}/mai/b50` in the site's format
+
+If the code is already the bot's friend but was not requested by that account, the job is rejected (the owner can remove the bot as a friend and request again) so nobody can read someone else's scores with just their code.
+
+1. Firebase console → Project settings → Service accounts → Generate new private key; save it as `firebase-key.json` in the project folder (or set `FIREBASE_KEY`). It is gitignored; never commit it
+2. Set `OTOGO_BOT_NAME` in `.env` to the bot account's in-game name
+3. `pip install -r requirements.txt`, then `python3 otogo_worker.py`
+
+To keep it running, use a systemd service (`/etc/systemd/system/otogo-worker.service`):
+
+```ini
+[Unit]
+Description=OtoGO B50 worker
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/mai-bot
+ExecStart=/home/ubuntu/mai-bot/.venv/bin/python otogo_worker.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now otogo-worker
+journalctl -u otogo-worker -f   # logs
 ```
 
 ## Data files
@@ -98,3 +138,4 @@ node index.js
 ## Security
 
 - Never commit `.env` or `cookies.json`; both grant access to accounts
+- Never commit `firebase-key.json`; it has admin access to the OtoGO Firestore
