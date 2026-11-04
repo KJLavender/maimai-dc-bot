@@ -2,58 +2,60 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-A Discord bot for **maimai DX (international)**: generate your Best 50 image, look up chart constants, and send friend requests from the bot's account.
+A Discord bot for maimai DX (the international version of the Sega arcade rhythm game). Type `/b50` and it draws an image of your Best 50, the 50 scores that make up your rating. It can also look up how hard a chart is and send you a friend request in the game.
 
-- Discord side: Node.js + [discord.js](https://discord.js.org)
-- Data side: Python scripts (Selenium + headless Chrome) that log in to [maimai DX NET](https://maimaidx-eng.com)
-- Song data and chart constants from the [arcade-songs](https://arcade-songs.zetaraku.dev) dataset
+The game's official site (maimai DX NET) has no public API, so the bot logs in as its own account with a headless Chrome browser (Selenium) and reads the pages. For `/b50` the bot account has to be your friend in the game, because it reads your scores through the friend page. Song data and chart constants come from the [arcade-songs](https://arcade-songs.zetaraku.dev) dataset. A chart constant is the hidden decimal difficulty of a chart, such as 13.4.
 
-> Designed to run on Linux (deployed on an Oracle Cloud Ubuntu VM). Scripts are invoked with `python3` and some paths are absolute (`/home/ubuntu/...`).
+The bot is written for Linux and runs on an Ubuntu VM. `get_levels.py` and `fetch_rating_analysis.py` contain absolute `/home/ubuntu/...` paths, and the scripts are started with `python3`.
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `/bind friendid:<ID>` | Bind your maimai Friend ID to your Discord account |
-| `/unbind` | Remove your binding |
-| `/myid` | Show your bound Friend ID |
-| `/b50` | Generate your Best 50 image (requires `/bind`, and the bot must be your in-game friend). Shows the rating change since last time; if the official site is down, shows your last result instead |
-| `/up` | Score-up suggestions from your last `/b50`: charts closest to the next rank that would raise your total rating the most |
+| `/bind friendid:<ID>` | Links your maimai Friend ID to your Discord account |
+| `/unbind` | Removes the link |
+| `/myid` | Shows the Friend ID you linked |
+| `/b50` | Draws your Best 50 image (needs `/bind`, and the bot must be your friend in the game). Shows the rating change since your last run. If the official site is down, it sends your last result instead |
+| `/up` | Suggests which charts to improve. It uses your last `/b50` and lists charts that are close to the next rank and would raise your rating the most |
 | `/log` | Your rating history (one entry per `/b50`) with a progress chart |
 | `/addfriend friendcode:<code>` | The bot sends you a friend request |
-| `/m query:<keyword>` | Look up chart constants by song title (fuzzy search, romaji works for Japanese titles, e.g. `senbonzakura`; pick from buttons if several match) |
-| `/c lv:<const> [to:<const>]` | List charts with a given constant or range, e.g. `/c 13.1`, `/c 13.0 13.4` |
-| `/r [lv:<const>] [to:<const>]` | Pick a random chart by constant, e.g. `/r 13.5`, `/r 13.5 14.0` (no options = any chart) |
-| `/rt query:<const or title>` | Rating per rank (including the +1 ALL PERFECT bonus): `/rt 13.3` shows AP/SSS+/SSS/... ratings for constant 13.3 (`/rt 13` = 13.0); `/rt <title>` shows them for every chart of that song |
-| `/h` | Show all commands and how to use them |
+| `/m query:<keyword>` | Looks up chart constants by song title. Fuzzy search; Japanese titles can be typed in romaji, e.g. `senbonzakura`. If several songs match, you pick one with buttons |
+| `/c lv:<const> [to:<const>]` | Lists charts with a constant or in a range, e.g. `/c 13.1`, `/c 13.0 13.4` |
+| `/r [lv:<const>] [to:<const>]` | Picks a random chart, e.g. `/r 13.5`, `/r 13.5 14.0`. With no options it picks from all charts |
+| `/rt query:<const or title>` | Rating you get at each rank, including the +1 for ALL PERFECT. `/rt 13.3` shows the ratings for constant 13.3 (`/rt 13` means 13.0). `/rt <title>` shows them for every chart of that song |
+| `/h` | Shows all commands |
 
-## Project layout
+`/b50` and `/addfriend` open the browser, so the bot handles one of them at a time. A second request gets a "please wait" message.
+
+## How `/b50` works
+
+1. `index.js` starts `catch-friend-score.py` with your Friend ID.
+2. That script logs in to maimai DX NET (reusing `cookies.json`) and reads your scores from the friend page.
+3. `fetch_rating_analysis.py` looks up the constant of each chart and picks the best 35 old-version scores and the best 15 new-version scores.
+4. `generate_b50_image.py` draws the image. Covers that are missing are downloaded into `covers/`.
+5. `b50_history.py` saves the result in `b50_data/`. `/up`, `/log` and the offline fallback read from there.
+
+## Files
 
 | File | Purpose |
 |---|---|
-| `index.js` | Discord bot: registers slash commands and spawns the Python scripts |
-| `catch-friend-score.py` | `/b50` entry: logs in (reusing `cookies.json`) and fetches the friend's scores |
-| `fetch_rating_analysis.py` | Computes the Best 50 from scores and chart constants |
-| `generate_b50_image.py` | Draws the B50 image; downloads missing covers into `covers/` |
-| `add_friend.py` | `/addfriend`: sends a friend request |
-| `search_song.py` / `song_data.py` | `/m`, `/c`, `/r`: song search and chart constants from the CloudFront dataset |
-| `get_levels.py` | Scrapes chart constants into `levels.json` (meant for cron) |
-| `get_all_pic.py` | Pre-downloads all song covers into `covers/` |
-| `b50_history.py` | Stores each `/b50` result in `b50_data/`; powers `/up`, `/log` and the offline fallback |
-| `otogo_worker.py` | Friend-code score fetching for the [OtoGO website](https://maimai-japan-map.netlify.app) (see below) |
+| `index.js` | The Discord bot. Registers the slash commands and starts the Python scripts |
+| `catch-friend-score.py` | Entry point for `/b50`: logs in and fetches the friend's scores |
+| `fetch_rating_analysis.py` | Computes the Best 50 from scores and constants |
+| `generate_b50_image.py` | Draws the B50 image |
+| `add_friend.py` | `/addfriend`: sends the friend request |
+| `search_song.py`, `song_data.py` | `/m`, `/c`, `/r`: song search and constants, from the `data.json` dataset behind arcade-songs |
+| `get_levels.py` | Scrapes constants into `levels.json` (meant to run from cron) |
+| `get_all_pic.py` | Downloads all song covers into `covers/` ahead of time |
+| `b50_history.py` | Stores each `/b50` result; powers `/up`, `/log` and the fallback |
+| `otogo_worker.py` | Fetches scores by friend code for the [OtoGO website](https://maimai-japan-map.netlify.app) (see below) |
 
 ## Setup
 
-### Prerequisites
+You need Node.js 18 or newer, Python 3.10 or newer, and Google Chrome or Chromium (`webdriver-manager` downloads the matching chromedriver). You also need these fonts:
 
-- Node.js 18+
-- Python 3.10+
-- Google Chrome / Chromium (chromedriver is managed by `webdriver-manager`)
-- Fonts:
-  - `wqy-microhei` (`sudo apt install fonts-wqy-microhei`)
-  - `impact.ttf` and `ariblk.ttf` placed in the project root (not included in this repo for licensing reasons)
-
-### Install
+- `wqy-microhei`: `sudo apt install fonts-wqy-microhei`
+- `impact.ttf` and `ariblk.ttf` in the project folder. They are not in the repo because of their licenses, and the image cannot be drawn without them.
 
 ```bash
 git clone https://github.com/KJLavender/maimai-dc-bot.git
@@ -62,46 +64,47 @@ npm install
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env      # then fill it in
 ```
 
-### Configure
+Settings in `.env`:
 
-```bash
-cp .env.example .env
-```
-
-| Variable | Description |
+| Variable | Meaning |
 |---|---|
 | `MAI_BOT_TOKEN` | Discord bot token |
 | `CLIENT_ID` | Discord application ID |
-| `GUILD_ID` | Server ID where slash commands are registered |
-| `MAI_USER` / `MAI_PASS` | maimai DX NET account used by the bot |
-| `SONGS_CACHE_TTL` | Optional. Song data cache lifetime in seconds, default `21600` (6 hours) |
-| `OTOGO_BOT_NAME` | `otogo_worker.py` only. In-game name of the bot account, shown to website users |
-| `FIREBASE_KEY` | `otogo_worker.py` only. Optional path to the Firebase service account key, default `./firebase-key.json` |
+| `GUILD_ID` | ID of the server where the slash commands are registered |
+| `MAI_USER`, `MAI_PASS` | The maimai DX NET account the bot logs in with |
+| `SONGS_CACHE_TTL` | Optional. How long the song data is cached, in seconds. Default `21600` (6 hours) |
+| `OTOGO_BOT_NAME` | Only for `otogo_worker.py`. The bot account's in-game name, shown to website users |
+| `FIREBASE_KEY` | Only for `otogo_worker.py`. Optional path to the Firebase service account key. Default `./firebase-key.json` |
 
-> `.env` is loaded by `index.js` and passed to the Python scripts. When running Python scripts directly (e.g. from cron), export these variables yourself.
-
-### Run
+Start the bot:
 
 ```bash
 node index.js
 ```
 
-### OtoGO website worker (optional)
+`index.js` loads `.env` and passes it to the Python scripts. If you run a Python script yourself (for example from cron), export these variables first.
 
-On the [OtoGO website](https://maimai-japan-map.netlify.app), signed-in users can enter their friend code, accept the bot's friend request and press a button to fetch their B50. The site puts a job in Firestore `jobs/{uid}`; `otogo_worker.py` listens for queued jobs and handles them one at a time:
+The bot registers its commands in the one server given by `GUILD_ID` when it starts.
 
-- `friend`: runs `add_friend.py`; on success records `maiBind/{friendCode} = {uid}` (which account sent the request)
-- `b50`: only if `maiBind` points to the same account, runs `catch-friend-score.py` and writes the scores to `users/{uid}/mai/b50` in the site's format
+## OtoGO website worker (optional)
 
-If the code is already the bot's friend but was not requested by that account, the job is rejected (the owner can remove the bot as a friend and request again) so nobody can read someone else's scores with just their code.
+On the [OtoGO website](https://maimai-japan-map.netlify.app), a signed-in user can enter their friend code, accept the bot's friend request and press a button to fetch their B50. The site puts a job in Firestore under `jobs/{uid}`. `otogo_worker.py` watches for queued jobs and handles them one at a time:
 
-1. Firebase console → Project settings → Service accounts → Generate new private key; save it as `firebase-key.json` in the project folder (or set `FIREBASE_KEY`). It is gitignored; never commit it
-2. Set `OTOGO_BOT_NAME` in `.env` to the bot account's in-game name
-3. `pip install -r requirements.txt`, then `python3 otogo_worker.py`
+- `friend`: runs `add_friend.py`. On success it records `maiBind/{friendCode} = {uid}`, which says which website account sent the request.
+- `b50`: only if `maiBind` points to the same account, it runs `catch-friend-score.py` and writes the scores to `users/{uid}/mai/b50`.
 
-To keep it running, use a systemd service (`/etc/systemd/system/otogo-worker.service`):
+If a friend code is already the bot's friend but was requested by a different account, the job is rejected. The owner can remove the bot as a friend and request again. This stops people from reading someone else's scores with only their code.
+
+To set it up:
+
+1. In the Firebase console, go to Project settings, then Service accounts, then Generate new private key. Save the file as `firebase-key.json` in the project folder, or point `FIREBASE_KEY` at it. It is in `.gitignore`. Do not commit it.
+2. Set `OTOGO_BOT_NAME` in `.env`.
+3. Run `python3 otogo_worker.py`.
+
+To keep it running, use a systemd service such as `/etc/systemd/system/otogo-worker.service`:
 
 ```ini
 [Unit]
@@ -129,13 +132,13 @@ journalctl -u otogo-worker -f   # logs
 
 | File | Content |
 |---|---|
-| `cookies.json` | Login session of the bot account (sensitive, **not** committed) |
-| `bindings.json` | Discord user ID → maimai Friend ID |
-| `songs_data_cache.json` | Song database cache, refreshed every `SONGS_CACHE_TTL` seconds |
-| `covers/` | Song cover cache |
-| `b50_data/` | Per-player B50 records: latest scores, rating history and last B50 image |
+| `cookies.json` | Login session of the bot account. Sensitive, not committed |
+| `bindings.json` | Discord user ID to maimai Friend ID |
+| `songs_data_cache.json` | Cached song data, refreshed after `SONGS_CACHE_TTL` seconds |
+| `covers/` | Song cover images |
+| `b50_data/` | Per-player records: latest scores, rating history and the last B50 image |
 
 ## Security
 
-- Never commit `.env` or `cookies.json`; both grant access to accounts
-- Never commit `firebase-key.json`; it has admin access to the OtoGO Firestore
+- Never commit `.env` or `cookies.json`. Both give access to accounts.
+- Never commit `firebase-key.json`. It has admin access to the OtoGO Firestore.
