@@ -14,3 +14,8 @@ firebase-key.json
 # Microsoft fonts are not redistributable; provide them on the server
 impact.ttf
 ariblk.ttf
+# personal data: Discord IDs, friend codes, player scores, logs
+bindings.json
+b50_*.png
+b50_data/
+*.log
